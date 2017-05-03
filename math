@@ -1,0 +1,126 @@
+#!/bin/bash
+
+# Error if no parameters given
+if [ -z "$*" ]; then
+    echo -e "nothing happened\ntry \"math -h\""
+    exit
+fi
+
+show_help() {
+# Display horizontal line
+seq -s- $(($(tput cols) + 1)) | tr -d '[0-9]'
+cat << EOF
+Usage: ${0##*/} [-c] [-f] [-d int int] [-m int int] [-r]...
+Performs division or modulus to a determined floor or ceiling.
+
+        -f      floor of result, must be used with -d or -m
+
+        -c      ceiling of result, must be used with -d or -m
+
+        -d dividend divisor
+                performs "dividend / divisor"
+
+        -m dividend divisor
+                performs "dividend % divisor"
+
+        -r      make result real, must be used with -d or -m
+
+        -h      displays this help text and exits
+
+
+EXAMPLES:
+        math -df -21 4
+        math -mc 2 5
+        math -dcr 14 -7
+
+MODULO NOTE:
+        math -mf +int +int          (truncated division)
+        math -mf -int -int          (truncated division)
+        math -mc -int +int          (truncated division)
+        math -mc +int -int          (truncated division)
+
+        math -mf (+/-)int (+/-)int  (floored division)
+
+        math -mfr (+/-)int (+/-)int (Euclidian division)
+
+Copyright © Ben Pitman
+EOF
+seq -s- $(($(tput cols) + 1)) | tr -d '[0-9]'
+exit
+}
+
+# Error outputs
+error() {
+    echo -n "$0: "
+    case $1 in
+        1) echo "options -c and -f must be used with either -d or -m";;
+        2) echo "two integers expected";;
+        3) echo "cannot divide by zero";;
+    esac
+    echo "see \"math -h\" for details"
+    exit 1
+}
+
+divide() {
+    dividend=$1
+    divisor=$2
+    negative_switch=0
+
+    # If one of the numbers is negative,
+    #   change negative_switch to 1 and make number positive
+    if (( $dividend<0 )); then
+        (( dividend*=-1 ))
+        (( negative_switch^=1 ))
+    fi
+    # If both are negative,
+    #   return negative_switch to 0 and make both positive
+    if (( $divisor<0 )); then
+        (( divisor*=-1 ))
+        (( negative_switch^=1 ))
+    fi
+
+    # If negative_switch is 1,
+    #   perform division and make result negative
+    case $round_direction in
+        c)  # Round up
+            if (( $negative_switch )); then
+                result=$(( ($dividend/$divisor)*-1 ))
+            else
+                result=$(( ($dividend+$divisor-1)/$divisor ))
+            fi;;
+        f)  # Round down
+            if (( $negative_switch )); then
+                result=$(( (($dividend+$divisor-1)/$divisor)*-1 ))
+            else
+                result=$(( $dividend/$divisor ))
+            fi;;
+    esac
+}
+
+# Check options given
+SWITCHES=$( grep -Po '(?<=-)[a-z]+' <<< $* )
+grep -q 'h' <<< $SWITCHES && show_help
+[[ $( awk '/c|f/ && /d|m/' <<< $SWITCHES ) ]] || error 1
+grep -q 'c' <<< $SWITCHES && round_direction="c"
+grep -q 'f' <<< $SWITCHES && round_direction="f"
+grep -q 'r' <<< $SWITCHES && real_number=1 || real_number=0
+
+
+if getopts ":d: :m:" argument; then
+    case $argument in
+        # Perform this always
+        d|m)    # Remove all option parameters
+                shift $(( $#-2 )) 2>/dev/null
+                # Check if parameters are numbers
+                [ "$1" -eq "$1" -o "$2" -eq "$2" ] 2>/dev/null || error 2
+                # Check if divisor is 0
+                (( $2 )) || error 3;;&
+        d)      divide $*;;
+        m)      divide $*
+                # Modulo calculation
+                result=$(( ($1-($2*$result)) ));;
+    esac
+    # If result is negative, make positive
+    (( $result<0 && $real_number )) && (( result*=-1 ))
+    echo $result
+fi
