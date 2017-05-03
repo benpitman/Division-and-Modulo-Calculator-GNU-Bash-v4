@@ -10,34 +10,34 @@ show_help() {
 # Display horizontal line
 seq -s- $(($(tput cols) + 1)) | tr -d '[0-9]'
 cat << EOF
-Usage: ${0##*/} [-c] [-f] [-d int int] [-m int int] [-r]...
+Usage: ${0##*/} [-c] [-d int int] [-f] [-h] [-m int int] [-r]...
 Performs division or modulus to a determined floor or ceiling.
-
-        -f      floor of result, must be used with -d or -m
+Truncated is default.
 
         -c      ceiling of result, must be used with -d or -m
 
         -d dividend divisor
                 performs "dividend / divisor"
 
+        -f      floor of result, must be used with -d or -m
+
+        -h      displays this help text and exits
+
         -m dividend divisor
                 performs "dividend % divisor"
 
         -r      make result real, must be used with -d or -m
 
-        -h      displays this help text and exits
-
-
 EXAMPLES:
-        math -df -21 4
+        math -d -21 4
         math -mc 2 5
         math -dcr 14 -7
 
 MODULO NOTE:
-        math -mf +int +int          (truncated division)
-        math -mf -int -int          (truncated division)
-        math -mc -int +int          (truncated division)
-        math -mc +int -int          (truncated division)
+        math -mf (+)int (+)int      (truncated division)
+        math -mf (-)int (-)int      (truncated division)
+        math -mc (-)int (+)int      (truncated division)
+        math -mc (+)int (-)int      (truncated division)
 
         math -mf (+/-)int (+/-)int  (floored division)
 
@@ -53,9 +53,11 @@ exit
 error() {
     echo -n "$0: "
     case $1 in
-        1) echo "options -c and -f must be used with either -d or -m";;
-        2) echo "two integers expected";;
-        3) echo "cannot divide by zero";;
+        1)  echo "options -c and -f must be used with either -d or -m";;
+        2)  echo "options -d and -m cannot be used together";;
+        3)  echo "options -c and -f cannot be used together";;
+        4)  echo "two integers expected";;
+        5)  echo "cannot divide by zero";;
     esac
     echo "see \"math -h\" for details"
     exit 1
@@ -78,6 +80,11 @@ divide() {
         (( divisor*=-1 ))
         (( negative_switch^=1 ))
     fi
+    # If one is negative and truncate is set,
+    #   change round direction to ceiling
+    if (( $truncate )); then
+        (( $negative_switch )) && round_direction="c"
+    fi
 
     # If negative_switch is 1,
     #   perform division and make result negative
@@ -98,27 +105,35 @@ divide() {
 }
 
 # Check options given
-SWITCHES=$( grep -Po '(?<=-)[a-z]+' <<< $* )
-grep -q 'h' <<< $SWITCHES && show_help
-[[ $( awk '/c|f/ && /d|m/' <<< $SWITCHES ) ]] || error 1
-grep -q 'c' <<< $SWITCHES && round_direction="c"
-grep -q 'f' <<< $SWITCHES && round_direction="f"
-grep -q 'r' <<< $SWITCHES && real_number=1 || real_number=0
-
+SWITCHES=( $( grep -Po -- '-\K[a-z]+' <<< $* | sed -r 's/([a-z])([a-z])?([a-z])?/\1 \2 \3/g' ) )
+[[ $( awk '/c|f/ && /d|m/ || /d|m/' <<< "${SWITCHES[@]}" ) ]] || error 1
+[[ $( awk '/d/ && /m/' <<< "${SWITCHES[@]}" ) ]] && error 2
+[[ $( awk '/c/ && /f/' <<< "${SWITCHES[@]}" ) ]] && error 3
+real_number=0
+truncate=1
+round_direction="f"
+for switch in "${SWITCHES[@]}"; do
+    case $switch in
+        h)      show_help;;
+        c|f)    truncate=0;;&
+        c)      round_direction="c";;
+        r)      real_number=1;;
+    esac
+done
 
 if getopts ":d: :m:" argument; then
     case $argument in
         # Perform this always
-        d|m)    # Remove all option parameters
-                shift $(( $#-2 )) 2>/dev/null
-                # Check if parameters are numbers
-                [ "$1" -eq "$1" -o "$2" -eq "$2" ] 2>/dev/null || error 2
-                # Check if divisor is 0
-                (( $2 )) || error 3;;&
-        d)      divide $*;;
-        m)      divide $*
-                # Modulo calculation
-                result=$(( ($1-($2*$result)) ));;
+        *)  # Remove all option parameters
+            shift $(( $#-2 )) 2>/dev/null
+            # Check if parameters are numbers
+            [ "$1" -eq "$1" -o "$2" -eq "$2" ] 2>/dev/null || error 4
+            # Check if divisor is 0
+            (( $2 )) || error 5;;&
+        d)  divide $*;;
+        m)  divide $*
+            # Modulo calculation
+            result=$(( ($1-($2*$result)) ));;
     esac
     # If result is negative, make positive
     (( $result<0 && $real_number )) && (( result*=-1 ))
