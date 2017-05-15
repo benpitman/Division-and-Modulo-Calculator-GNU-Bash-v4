@@ -10,9 +10,11 @@ show_help() {
 # Display horizontal line
 seq -s- $(($(tput cols) + 1)) | tr -d '[0-9]'
 cat << EOF
-Usage: ${0##*/} [-c] [-d int int] [-f] [-h] [-m int int] [-r]...
+Usage: ${0##*/} [-a] [-c] [-d int int] [-f] [-h] [-m int int]...
 Performs division or modulus to a determined floor or ceiling.
 Truncated is default.
+
+        -a      make result absolute, must be used with -d or -m
 
         -c      ceiling of result, must be used with -d or -m
 
@@ -26,12 +28,10 @@ Truncated is default.
         -m dividend divisor
                 performs "dividend % divisor"
 
-        -r      make result real, must be used with -d or -m
-
 EXAMPLES:
         math -d -21 4
         math -mc 2 5
-        math -dcr 14 -7
+        math -dca 14 -7
 
 MODULO NOTE:
         math -mf (+)int (+)int      (truncated division)
@@ -41,7 +41,7 @@ MODULO NOTE:
 
         math -mf (+/-)int (+/-)int  (floored division)
 
-        math -mfr (+/-)int (+/-)int (Euclidian division)
+        math -mfa (+/-)int (+/-)int (Euclidian division)
 
 Copyright © Ben Pitman
 EOF
@@ -109,15 +109,15 @@ SWITCHES=( $( grep -Po -- '-\K[a-z]+' <<< $* | sed -r 's/([a-z])([a-z])?([a-z])?
 [[ $( awk '/c|f/ && /d|m/ || /d|m/' <<< "${SWITCHES[@]}" ) ]] || error 1
 [[ $( awk '/d/ && /m/' <<< "${SWITCHES[@]}" ) ]] && error 2
 [[ $( awk '/c/ && /f/' <<< "${SWITCHES[@]}" ) ]] && error 3
-real_number=0
+absolute_number=0
 truncate=1
 round_direction="f"
 for switch in "${SWITCHES[@]}"; do
     case $switch in
+        a)      absolute_number=1;;
         h)      show_help;;
         c|f)    truncate=0;;&
         c)      round_direction="c";;
-        r)      real_number=1;;
     esac
 done
 
@@ -136,6 +136,7 @@ if getopts ":d: :m:" argument; then
             result=$(( ($1-($2*$result)) ));;
     esac
     # If result is negative, make positive
-    (( $result<0 && $real_number )) && (( result*=-1 ))
+    (( $result<0 && $absolute_number )) && (( result*=-1 ))
     echo $result
+    (( $result==0 )) && exit 1 || exit 0
 fi
